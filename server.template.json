@@ -1,18 +1,18 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.easonlin/charles-local-mcp",
+  "name": "io.github.eason0in/charles-local-mcp",
   "title": "Charles Local MCP",
   "description": "Guarded local Charles Proxy automation for macOS and Android testing",
   "repository": {
-    "url": "https://github.com/easonlin/charles-local-mcp",
+    "url": "https://github.com/Eason0in/charles-local-mcp",
     "source": "github"
   },
-  "websiteUrl": "https://github.com/easonlin/charles-local-mcp#readme",
+  "websiteUrl": "https://github.com/Eason0in/charles-local-mcp#readme",
   "version": "0.1.0",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/easonlin/charles-local-mcp/releases/download/v0.1.0/charles-local-mcp-0.1.0-universal-apple-darwin.mcpb",
+      "identifier": "https://github.com/Eason0in/charles-local-mcp/releases/download/v0.1.0/charles-local-mcp-0.1.0-universal-apple-darwin.mcpb",
       "version": "0.1.0",
       "fileSha256": "__MCPB_SHA256__",
       "transport": { "type": "stdio" }
