@@ -101,6 +101,9 @@ impl Profile {
             if verification.scheme() != "https" {
                 return Err("verificationUrl must use https".into());
             }
+            if verification.username() != "" || verification.password().is_some() {
+                return Err("verificationUrl must not contain credentials".into());
+            }
             if verification.host_str() != Some(self.source_host.as_str()) {
                 return Err("verificationUrl host must exactly match sourceHost".into());
             }
@@ -181,6 +184,16 @@ mod tests {
         let mut value = profile("http://127.0.0.1:8080");
         value.verification_url = Some("https://other.example.com/health".into());
         assert!(value.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_credentials_in_verification_url() {
+        let mut value = profile("http://127.0.0.1:8080");
+        value.verification_url = Some("https://user:password@app.example.com/health".into());
+
+        let error = value.validate().unwrap_err();
+
+        assert!(error.contains("credentials"), "unexpected error: {error}");
     }
 
     #[test]

@@ -7,15 +7,15 @@
   "long_description": "Profile-driven Charles 4.6.8 automation with immutable TOML profiles, loopback-only Map Remote destinations, guarded plan/apply tokens, Android ADB reverse support, and ownership-aware cleanup.",
   "author": {
     "name": "Eason Lin",
-    "url": "https://github.com/easonlin"
+    "url": "https://github.com/Eason0in"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/easonlin/charles-local-mcp.git"
+    "url": "https://github.com/Eason0in/charles-local-mcp.git"
   },
-  "homepage": "https://github.com/easonlin/charles-local-mcp",
-  "documentation": "https://github.com/easonlin/charles-local-mcp#readme",
-  "support": "https://github.com/easonlin/charles-local-mcp/issues",
+  "homepage": "https://github.com/Eason0in/charles-local-mcp",
+  "documentation": "https://github.com/Eason0in/charles-local-mcp#readme",
+  "support": "https://github.com/Eason0in/charles-local-mcp/issues",
   "server": {
     "type": "binary",
     "entry_point": "server/charles-local-mcp",

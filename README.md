@@ -24,7 +24,8 @@ retaining the exact SSL hosts and optional verification URL. When present,
 `destinationUrl` is restricted to loopback addresses.
 
 Map Remote destinations must resolve to a loopback host. `verificationUrl` is
-optional, must use HTTPS, and must match `sourceHost`.
+optional, must use HTTPS without embedded credentials, and must match
+`sourceHost`.
 
 ## Commands
 
