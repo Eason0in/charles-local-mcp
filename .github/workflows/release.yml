@@ -1,0 +1,144 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing signed version tag, for example v0.1.0"
+        required: true
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    environment: release
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Verify release versions and tag
+        run: |
+          version="${RELEASE_TAG#v}"
+          test "$version" = "$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+          test "$version" = "$(jq -r .version mcpb/manifest.json)"
+          test "$version" = "$(jq -r .version server.template.json)"
+          git verify-tag "$RELEASE_TAG"
+
+      - name: Test and build both macOS architectures
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --all-targets --all-features -- -D warnings
+          cargo test --locked --all-targets --all-features
+          cargo build --locked --release --target aarch64-apple-darwin
+          cargo build --locked --release --target x86_64-apple-darwin
+          mkdir -p dist/bundle/server
+          lipo -create \
+            target/aarch64-apple-darwin/release/charles-local-mcp \
+            target/x86_64-apple-darwin/release/charles-local-mcp \
+            -output dist/bundle/server/charles-local-mcp
+          cp mcpb/manifest.json dist/bundle/manifest.json
+          chmod 0755 dist/bundle/server/charles-local-mcp
+          lipo -archs dist/bundle/server/charles-local-mcp | grep -q arm64
+          lipo -archs dist/bundle/server/charles-local-mcp | grep -q x86_64
+
+      - name: Import Developer ID certificate
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          test -n "$APPLE_CERTIFICATE_BASE64"
+          test -n "$APPLE_CERTIFICATE_PASSWORD"
+          keychain="$RUNNER_TEMP/release.keychain-db"
+          certificate="$RUNNER_TEMP/developer-id.p12"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p temporary "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p temporary "$keychain"
+          security import "$certificate" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security list-keychain -d user -s "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -s -k temporary "$keychain"
+
+      - name: Sign and notarize universal binary
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          test -n "$APPLE_SIGNING_IDENTITY"
+          codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" dist/bundle/server/charles-local-mcp
+          codesign --verify --strict --verbose=2 dist/bundle/server/charles-local-mcp
+          ditto -c -k --keepParent dist/bundle/server/charles-local-mcp "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --wait
+
+      - name: Build and sign MCPB
+        env:
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          npx --yes @anthropic-ai/mcpb@2.1.2 validate dist/bundle/manifest.json
+          npx --yes @anthropic-ai/mcpb@2.1.2 pack dist/bundle "dist/charles-local-mcp-$version-universal-apple-darwin.mcpb"
+          openssl pkcs12 -in "$RUNNER_TEMP/developer-id.p12" -clcerts -nokeys -passin "pass:$APPLE_CERTIFICATE_PASSWORD" -out "$RUNNER_TEMP/mcpb-cert.pem"
+          openssl pkcs12 -in "$RUNNER_TEMP/developer-id.p12" -nocerts -nodes -passin "pass:$APPLE_CERTIFICATE_PASSWORD" -out "$RUNNER_TEMP/mcpb-key.pem"
+          npx --yes @anthropic-ai/mcpb@2.1.2 sign "dist/charles-local-mcp-$version-universal-apple-darwin.mcpb" --cert "$RUNNER_TEMP/mcpb-cert.pem" --key "$RUNNER_TEMP/mcpb-key.pem"
+          npx --yes @anthropic-ai/mcpb@2.1.2 verify "dist/charles-local-mcp-$version-universal-apple-darwin.mcpb"
+          tar -C dist/bundle/server -czf "dist/charles-local-mcp-$version-universal-apple-darwin.tar.gz" charles-local-mcp
+          shasum -a 256 dist/charles-local-mcp-* > dist/SHA256SUMS
+
+      - name: Materialize and validate MCP Registry metadata
+        run: |
+          version="${RELEASE_TAG#v}"
+          bundle="dist/charles-local-mcp-$version-universal-apple-darwin.mcpb"
+          digest="$(shasum -a 256 "$bundle" | awk '{print $1}')"
+          node -e 'const fs=require("fs"); fs.writeFileSync("dist/server.json", fs.readFileSync("server.template.json","utf8").replace("__MCPB_SHA256__", process.argv[1]))' "$digest"
+          curl -fsSLO https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_darwin_arm64.tar.gz
+          echo "e45e520892460732a4bdf37255576415d4a53ec171f8b913faf15bb1aef7cb77  mcp-publisher_darwin_arm64.tar.gz" | shasum -a 256 --check
+          tar -xzf mcp-publisher_darwin_arm64.tar.gz mcp-publisher
+          ./mcp-publisher validate dist/server.json
+
+      - name: Publish crates.io package
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked --token "$CARGO_REGISTRY_TOKEN"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$RELEASE_TAG" dist/*.mcpb dist/*.tar.gz dist/SHA256SUMS dist/server.json --verify-tag --generate-notes
+
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: |
+            dist/*.mcpb
+            dist/*.tar.gz
+
+      - name: Publish MCP Registry entry
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish dist/server.json
+
+      - name: Delete temporary keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/release.keychain-db" || true

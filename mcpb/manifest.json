@@ -1,0 +1,57 @@
+{
+  "manifest_version": "0.3",
+  "name": "charles-local-mcp",
+  "display_name": "Charles Local MCP",
+  "version": "0.1.0",
+  "description": "Safely manage a local Charles Proxy session from MCP on macOS",
+  "long_description": "Profile-driven Charles 4.6.8 automation with immutable TOML profiles, loopback-only Map Remote destinations, guarded plan/apply tokens, Android ADB reverse support, and ownership-aware cleanup.",
+  "author": {
+    "name": "Eason Lin",
+    "url": "https://github.com/easonlin"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/easonlin/charles-local-mcp.git"
+  },
+  "homepage": "https://github.com/easonlin/charles-local-mcp",
+  "documentation": "https://github.com/easonlin/charles-local-mcp#readme",
+  "support": "https://github.com/easonlin/charles-local-mcp/issues",
+  "server": {
+    "type": "binary",
+    "entry_point": "server/charles-local-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/server/charles-local-mcp",
+      "args": [
+        "--profiles-file",
+        "${user_config.profiles_file}",
+        "serve"
+      ],
+      "env": {}
+    }
+  },
+  "tools": [
+    { "name": "doctor", "description": "Inspect local Charles prerequisites" },
+    { "name": "profiles_list", "description": "List immutable profile names" },
+    { "name": "profiles_validate", "description": "Validate immutable profiles" },
+    { "name": "devices_list", "description": "List connected Android devices" },
+    { "name": "setup_plan", "description": "Create a guarded setup plan" },
+    { "name": "setup_apply", "description": "Apply a guarded setup plan" },
+    { "name": "setup_resume", "description": "Resume a manual setup checkpoint" },
+    { "name": "status", "description": "Inspect the active managed session" },
+    { "name": "cleanup_plan", "description": "Create a guarded cleanup plan" },
+    { "name": "cleanup_apply", "description": "Apply ownership-aware cleanup" }
+  ],
+  "keywords": ["charles-proxy", "android", "testing", "automation"],
+  "license": "MIT OR Apache-2.0",
+  "compatibility": {
+    "platforms": ["darwin"]
+  },
+  "user_config": {
+    "profiles_file": {
+      "type": "file",
+      "title": "Charles profiles file",
+      "description": "Select a charles-local-mcp TOML profiles file. MCP tools can read and select profiles but cannot edit this file.",
+      "required": true
+    }
+  }
+}
