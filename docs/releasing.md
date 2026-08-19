@@ -30,3 +30,6 @@ for MCP Registry authentication.
    assets, checksums and attestations, and the MCP Registry entry.
 
 The workflow refuses a tag whose version differs from any release manifest.
+
+The account-side setup and submission data for npm, the MCP Registry, Glama,
+and MCP.so are tracked in [Marketplace submission checklist](marketplace-submission.md).
