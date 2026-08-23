@@ -60,9 +60,7 @@ Build from crates.io when a local Rust toolchain is available:
 cargo install charles-local-mcp --locked
 ```
 
-For a one-click MCP client installation on macOS, use the signed and notarized
-universal `.mcpb` asset from the matching GitHub Release. The bundle asks for a
-TOML profiles file and starts `charles-local-mcp serve`; profiles remain
-read-only to MCP tools.
+For a one-click MCP client installation on macOS, use the universal `.mcpb`
+asset from the matching GitHub Release. The native binary and bundle are not signed or notarized by Apple, so macOS may show a security warning when opening a downloaded asset. Verify `SHA256SUMS` from that release before installing. The bundle asks for a TOML profiles file and starts `charles-local-mcp serve`; profiles remain read-only to MCP tools.
 
 Release maintainers should follow [`docs/releasing.md`](docs/releasing.md).

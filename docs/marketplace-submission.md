@@ -11,7 +11,7 @@ credentials to GitHub.
 | Repository | `https://github.com/Eason0in/charles-local-mcp` |
 | Crate | `charles-local-mcp` |
 | MCP Registry name | `io.github.eason0in/charles-local-mcp` |
-| Distribution | signed MCPB for macOS (Apple Silicon and Intel) |
+| Distribution | unsigned, non-notarized MCPB for macOS (Apple Silicon and Intel) |
 | License | MIT OR Apache-2.0 |
 | Maintainer | GitHub `Eason0in` |
 
@@ -25,7 +25,7 @@ security review, and release process.
 ## Model Context Protocol Registry
 
 `server.template.json` is validated in CI with a placeholder digest. At release
-time, the workflow builds and signs the MCPB, calculates its SHA-256 digest,
+time, the workflow builds the MCPB, calculates its SHA-256 digest,
 materializes `dist/server.json`, validates it, creates the GitHub Release, and
 publishes the Registry entry through GitHub OIDC.
 
@@ -47,7 +47,7 @@ Prepare the following submission values; enter them only in the MCP.so web form:
 - repository URL: `https://github.com/Eason0in/charles-local-mcp`
 - name: `Charles Local MCP`
 - summary: `Guarded local Charles Proxy automation for macOS and Android testing`
-- installation: install the signed `.mcpb` asset from the matching GitHub Release
+- installation: install the `.mcpb` asset from the matching GitHub Release; it is not Apple-notarized and macOS may show a security warning
 - transport: `stdio`
 - platform limitation: macOS, Charles Proxy, and an explicitly selected profile
 
@@ -57,8 +57,8 @@ Windows/Linux or `npx` support.
 ## Evidence required before pressing publish
 
 1. The protected `release` environment approves the signed `v<version>` tag.
-2. The release workflow has produced a signed, notarized MCPB and published its
-   checksum and GitHub attestation.
+2. The release workflow has produced the non-notarized MCPB and published its
+   checksum, release notice, and GitHub attestation.
 3. The generated `dist/server.json` has passed MCP Publisher validation and its
    SHA-256 points to the released MCPB.
 4. Every applicable public listing points to the same repository, version, and
