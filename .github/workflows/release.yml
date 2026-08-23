@@ -59,53 +59,19 @@ jobs:
           lipo -archs dist/bundle/server/charles-local-mcp | grep -q arm64
           lipo -archs dist/bundle/server/charles-local-mcp | grep -q x86_64
 
-      - name: Import Developer ID certificate
-        env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          test -n "$APPLE_CERTIFICATE_BASE64"
-          test -n "$APPLE_CERTIFICATE_PASSWORD"
-          keychain="$RUNNER_TEMP/release.keychain-db"
-          certificate="$RUNNER_TEMP/developer-id.p12"
-          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
-          security create-keychain -p temporary "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p temporary "$keychain"
-          security import "$certificate" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
-          security list-keychain -d user -s "$keychain"
-          security set-key-partition-list -S apple-tool:,apple: -s -k temporary "$keychain"
-
-      - name: Sign and notarize universal binary
-        env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-        run: |
-          test -n "$APPLE_SIGNING_IDENTITY"
-          codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" dist/bundle/server/charles-local-mcp
-          codesign --verify --strict --verbose=2 dist/bundle/server/charles-local-mcp
-          ditto -c -k --keepParent dist/bundle/server/charles-local-mcp "$RUNNER_TEMP/notarize.zip"
-          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
-            --apple-id "$APPLE_ID" \
-            --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_PASSWORD" \
-            --wait
-
-      - name: Build and sign MCPB
-        env:
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      - name: Build unsigned MCPB
         run: |
           version="${RELEASE_TAG#v}"
           npx --yes @anthropic-ai/mcpb@2.1.2 validate dist/bundle/manifest.json
           npx --yes @anthropic-ai/mcpb@2.1.2 pack dist/bundle "dist/charles-local-mcp-$version-universal-apple-darwin.mcpb"
-          openssl pkcs12 -in "$RUNNER_TEMP/developer-id.p12" -clcerts -nokeys -passin "pass:$APPLE_CERTIFICATE_PASSWORD" -out "$RUNNER_TEMP/mcpb-cert.pem"
-          openssl pkcs12 -in "$RUNNER_TEMP/developer-id.p12" -nocerts -nodes -passin "pass:$APPLE_CERTIFICATE_PASSWORD" -out "$RUNNER_TEMP/mcpb-key.pem"
-          npx --yes @anthropic-ai/mcpb@2.1.2 sign "dist/charles-local-mcp-$version-universal-apple-darwin.mcpb" --cert "$RUNNER_TEMP/mcpb-cert.pem" --key "$RUNNER_TEMP/mcpb-key.pem"
-          npx --yes @anthropic-ai/mcpb@2.1.2 verify "dist/charles-local-mcp-$version-universal-apple-darwin.mcpb"
+          npx --yes @anthropic-ai/mcpb@2.1.2 info "dist/charles-local-mcp-$version-universal-apple-darwin.mcpb"
           tar -C dist/bundle/server -czf "dist/charles-local-mcp-$version-universal-apple-darwin.tar.gz" charles-local-mcp
           shasum -a 256 dist/charles-local-mcp-* > dist/SHA256SUMS
+          cat > dist/RELEASE-NOTICE.txt <<'EOF'
+          This macOS native binary and MCPB bundle are not signed or notarized by Apple.
+          macOS may show a security warning when opening the downloaded asset.
+          Verify SHA256SUMS and use the matching GitHub Release before installing.
+          EOF
 
       - name: Materialize and validate MCP Registry metadata
         run: |
@@ -126,7 +92,7 @@ jobs:
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$RELEASE_TAG" dist/*.mcpb dist/*.tar.gz dist/SHA256SUMS dist/server.json --verify-tag --generate-notes
+        run: gh release create "$RELEASE_TAG" dist/*.mcpb dist/*.tar.gz dist/SHA256SUMS dist/server.json dist/RELEASE-NOTICE.txt --verify-tag --generate-notes
 
       - uses: actions/attest-build-provenance@v3
         with:
@@ -138,7 +104,3 @@ jobs:
         run: |
           ./mcp-publisher login github-oidc
           ./mcp-publisher publish dist/server.json
-
-      - name: Delete temporary keychain
-        if: always()
-        run: security delete-keychain "$RUNNER_TEMP/release.keychain-db" || true
