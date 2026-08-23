@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing signed version tag, for example v0.1.0"
+        description: "Existing signed version tag, for example v0.1.1"
         required: true
 
 permissions:
@@ -40,6 +40,13 @@ jobs:
           test "$version" = "$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
           test "$version" = "$(jq -r .version mcpb/manifest.json)"
           test "$version" = "$(jq -r .version server.template.json)"
+          expected_fingerprint="0EB5965CB6DF87E3F7FFEA2758C03387F54FDA7A"
+          key_file="$(mktemp)"
+          trap 'rm -f "$key_file"' EXIT
+          curl --fail --silent --show-error --location https://github.com/Eason0in.gpg --output "$key_file"
+          gpg --batch --import "$key_file"
+          actual_fingerprint="$(gpg --batch --with-colons --fingerprint "$expected_fingerprint" | awk -F: '$1 == "fpr" { print $10; exit }')"
+          test "$actual_fingerprint" = "$expected_fingerprint"
           git verify-tag "$RELEASE_TAG"
 
       - name: Test and build both macOS architectures
