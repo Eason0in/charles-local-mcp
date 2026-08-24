@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "charles-local-mcp",
   "display_name": "Charles Local MCP",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Safely manage a local Charles Proxy session from MCP on macOS",
   "long_description": "Profile-driven Charles 4.6.8 automation with immutable TOML profiles, loopback-only Map Remote destinations, guarded plan/apply tokens, Android ADB reverse support, and ownership-aware cleanup.",
   "author": {

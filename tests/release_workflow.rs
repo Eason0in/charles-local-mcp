@@ -38,9 +38,20 @@ fn readme_discloses_that_native_assets_are_not_notarized() {
 }
 
 #[test]
+fn registry_metadata_uses_the_oidc_publisher_namespace() {
+    let metadata: serde_json::Value =
+        serde_json::from_str(include_str!("../server.template.json")).unwrap();
+
+    assert_eq!(
+        metadata["name"], "io.github.Eason0in/charles-local-mcp",
+        "the Registry server identifier must match the GitHub OIDC publisher namespace"
+    );
+}
+
+#[test]
 fn mcpb_build_script_uses_the_current_release_version_by_default() {
     let script = include_str!("../scripts/build-mcpb.sh");
 
-    assert!(script.contains("charles-local-mcp-0.1.1-"));
+    assert!(script.contains("charles-local-mcp-0.1.2-"));
     assert!(!script.contains("charles-local-mcp-0.1.0-"));
 }
