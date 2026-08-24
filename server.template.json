@@ -8,12 +8,12 @@
     "source": "github"
   },
   "websiteUrl": "https://github.com/Eason0in/charles-local-mcp#readme",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/Eason0in/charles-local-mcp/releases/download/v0.1.0/charles-local-mcp-0.1.0-universal-apple-darwin.mcpb",
-      "version": "0.1.0",
+      "identifier": "https://github.com/Eason0in/charles-local-mcp/releases/download/v0.1.1/charles-local-mcp-0.1.1-universal-apple-darwin.mcpb",
+      "version": "0.1.1",
       "fileSha256": "__MCPB_SHA256__",
       "transport": { "type": "stdio" }
     }
