@@ -3,7 +3,7 @@
 Local-only, profile-driven Charles Proxy automation for macOS. The same
 application service is exposed through a JSON CLI and an MCP stdio server.
 
-Version `0.1.1` supports Charles `4.6.8` on macOS. The public package contains
+Version `0.1.2` supports Charles `4.6.8` on macOS. The public package contains
 only generic `example.com` fixtures and no organization-specific hosts or paths.
 
 ## Profile

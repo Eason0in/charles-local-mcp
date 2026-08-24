@@ -11,7 +11,7 @@ case "$rust_host" in
     exit 1
     ;;
 esac
-output="${1:-$repo_root/dist/charles-local-mcp-0.1.1-$asset_target.mcpb}"
+output="${1:-$repo_root/dist/charles-local-mcp-0.1.2-$asset_target.mcpb}"
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 

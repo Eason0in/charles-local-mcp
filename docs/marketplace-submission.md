@@ -10,7 +10,7 @@ credentials to GitHub.
 | --- | --- |
 | Repository | `https://github.com/Eason0in/charles-local-mcp` |
 | Crate | `charles-local-mcp` |
-| MCP Registry name | `io.github.eason0in/charles-local-mcp` |
+| MCP Registry name | `io.github.Eason0in/charles-local-mcp` |
 | Distribution | unsigned, non-notarized MCPB for macOS (Apple Silicon and Intel) |
 | License | MIT OR Apache-2.0 |
 | Maintainer | GitHub `Eason0in` |
