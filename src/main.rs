@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use charles_local_mcp::{
     default_state_dir,
     mcp::McpServer,
-    model::{DevicePlatform, Response, SetupPlanRequest},
+    model::{DevicePlatform, Response, SessionEvidenceRequest, SetupPlanRequest},
     Service,
 };
 use clap::{Args, Parser, Subcommand};
@@ -16,6 +16,8 @@ struct Cli {
     profiles_file: Option<PathBuf>,
     #[arg(long, global = true)]
     state_dir: Option<PathBuf>,
+    #[arg(long, global = true)]
+    evidence_root: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -31,6 +33,10 @@ enum Command {
     Devices {
         #[command(subcommand)]
         command: DevicesCommand,
+    },
+    Session {
+        #[command(subcommand)]
+        command: SessionCommand,
     },
     Setup {
         #[command(subcommand)]
@@ -52,6 +58,11 @@ enum ProfilesCommand {
 #[derive(Debug, Subcommand)]
 enum DevicesCommand {
     List(JsonArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum SessionCommand {
+    Evidence(SessionEvidenceArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -93,6 +104,16 @@ struct SetupPlanArgs {
     json: bool,
 }
 
+#[derive(Debug, Clone, Args)]
+struct SessionEvidenceArgs {
+    #[arg(long)]
+    profile: String,
+    #[arg(long)]
+    xml_file: PathBuf,
+    #[arg(long)]
+    json: bool,
+}
+
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 enum PlatformArg {
     Host,
@@ -114,7 +135,8 @@ impl From<PlatformArg> for DevicePlatform {
 async fn main() {
     let cli = Cli::parse();
     let state_dir = cli.state_dir.unwrap_or_else(default_state_dir);
-    let service = match Service::new(state_dir, cli.profiles_file) {
+    let service = match Service::with_evidence_root(state_dir, cli.profiles_file, cli.evidence_root)
+    {
         Ok(service) => service,
         Err(error) => {
             emit(&Response::error("startup", "state_error", error));
@@ -137,6 +159,14 @@ async fn main() {
         },
         Command::Devices { command } => match command {
             DevicesCommand::List(_) => service.devices_list(),
+        },
+        Command::Session { command } => match command {
+            SessionCommand::Evidence(arguments) => {
+                service.session_evidence(SessionEvidenceRequest {
+                    profile: arguments.profile,
+                    xml_file: arguments.xml_file,
+                })
+            }
         },
         Command::Setup { command } => match command {
             SetupCommand::Plan(arguments) => service.setup_plan(SetupPlanRequest {

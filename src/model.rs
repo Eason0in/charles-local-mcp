@@ -112,6 +112,15 @@ pub struct SetupPlanRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct SessionEvidenceRequest {
+    /// Name of the immutable profile whose sourceHost is the exact allowlist.
+    pub profile: String,
+    /// Relative or absolute .xml path that must resolve within the configured evidence root.
+    pub xml_file: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct TokenRequest {
     pub token: String,
 }

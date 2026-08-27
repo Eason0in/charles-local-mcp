@@ -1,9 +1,9 @@
 [package]
 name = "charles-local-mcp"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 rust-version = "1.88"
-description = "Local, profile-driven Charles Proxy automation over CLI and MCP"
+description = "Local Charles Proxy automation and bounded XML session evidence over CLI and MCP"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Eason0in/charles-local-mcp"
 homepage = "https://github.com/Eason0in/charles-local-mcp"
