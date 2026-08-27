@@ -254,6 +254,167 @@ fn confines_selected_files_to_the_canonical_evidence_root() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn rejects_symlinked_parent_even_when_it_points_inside_the_evidence_root() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempfile::tempdir().unwrap();
+    let evidence_root = directory.path().join("evidence");
+    let real_parent = evidence_root.join("real-parent");
+    std::fs::create_dir_all(&real_parent).unwrap();
+    std::fs::write(
+        real_parent.join("session.xml"),
+        "<charles-session></charles-session>",
+    )
+    .unwrap();
+    symlink(&real_parent, evidence_root.join("linked-parent")).unwrap();
+
+    let (status, response, stderr) = run_evidence_with_root(
+        std::path::Path::new("linked-parent/session.xml"),
+        &evidence_root,
+    );
+
+    assert!(!status.success(), "stderr: {stderr}; response: {response}");
+    assert_eq!(response["error"]["code"], "session_file_outside_root");
+}
+
+#[cfg(unix)]
+#[test]
+fn rejects_a_symlinked_evidence_root() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempfile::tempdir().unwrap();
+    let real_root = directory.path().join("real-root");
+    std::fs::create_dir(&real_root).unwrap();
+    std::fs::write(
+        real_root.join("session.xml"),
+        "<charles-session></charles-session>",
+    )
+    .unwrap();
+    let linked_root = directory.path().join("linked-root");
+    symlink(&real_root, &linked_root).unwrap();
+    let linked_root_with_slash = std::path::PathBuf::from(format!("{}/", linked_root.display()));
+    let linked_root_with_dot = linked_root.join(".");
+
+    for root in [
+        linked_root.as_path(),
+        linked_root_with_slash.as_path(),
+        linked_root_with_dot.as_path(),
+    ] {
+        let (status, response, stderr) =
+            run_evidence_with_root(std::path::Path::new("session.xml"), root);
+
+        assert!(
+            !status.success(),
+            "root: {}; stderr: {stderr}; response: {response}",
+            root.display()
+        );
+        assert_eq!(response["error"]["code"], "evidence_root_unavailable");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn rejects_a_final_symlink_even_with_a_trailing_slash() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempfile::tempdir().unwrap();
+    let evidence_root = directory.path().join("evidence");
+    std::fs::create_dir(&evidence_root).unwrap();
+    let target = evidence_root.join("target.xml");
+    std::fs::write(&target, "<charles-session></charles-session>").unwrap();
+    symlink(&target, evidence_root.join("symlink.xml")).unwrap();
+
+    let (status, response, stderr) =
+        run_evidence_with_root(std::path::Path::new("symlink.xml/"), &evidence_root);
+
+    assert!(!status.success(), "stderr: {stderr}; response: {response}");
+    assert_eq!(response["error"]["code"], "session_file_outside_root");
+}
+
+#[test]
+fn accepts_an_absolute_xml_path_with_a_relative_evidence_root() {
+    let directory = tempfile::tempdir().unwrap();
+    let child_working_directory = directory.path().canonicalize().unwrap();
+    let evidence_root = directory.path().join("evidence");
+    std::fs::create_dir(&evidence_root).unwrap();
+    let xml = child_working_directory.join("evidence/session.xml");
+    std::fs::write(&xml, "<charles-session></charles-session>").unwrap();
+    let profiles = profiles_file(&directory);
+    let output = Command::new(env!("CARGO_BIN_EXE_charles-local-mcp"))
+        .current_dir(&child_working_directory)
+        .args([
+            "--state-dir",
+            directory.path().join("state").to_str().unwrap(),
+            "--evidence-root",
+            "evidence",
+            "--profiles-file",
+            profiles.to_str().unwrap(),
+            "session",
+            "evidence",
+            "--profile",
+            "demo",
+            "--xml-file",
+            xml.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    assert!(output.status.success(), "response: {response}");
+    assert_eq!(response["status"], "ready");
+}
+
+#[cfg(unix)]
+#[test]
+fn rejects_a_fifo_without_blocking() {
+    use std::time::{Duration, Instant};
+
+    let directory = tempfile::tempdir().unwrap();
+    let evidence_root = directory.path().join("evidence");
+    std::fs::create_dir(&evidence_root).unwrap();
+    let fifo = evidence_root.join("session.xml");
+    let mkfifo = Command::new("mkfifo").arg(&fifo).status().unwrap();
+    assert!(mkfifo.success());
+    let profiles = profiles_file(&directory);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_charles-local-mcp"))
+        .args([
+            "--state-dir",
+            directory.path().join("state").to_str().unwrap(),
+            "--evidence-root",
+            evidence_root.to_str().unwrap(),
+            "--profiles-file",
+            profiles.to_str().unwrap(),
+            "session",
+            "evidence",
+            "--profile",
+            "demo",
+            "--xml-file",
+            "session.xml",
+            "--json",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while child.try_wait().unwrap().is_none() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    if child.try_wait().unwrap().is_none() {
+        child.kill().unwrap();
+        let _ = child.wait();
+        panic!("session evidence blocked while opening a FIFO");
+    }
+    let output = child.wait_with_output().unwrap();
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    assert!(!output.status.success());
+    assert_eq!(response["error"]["code"], "session_file_not_xml");
+}
+
 #[test]
 fn evidence_analysis_is_read_only_and_writes_no_session_or_ledger_files() {
     let directory = tempfile::tempdir().unwrap();
@@ -284,6 +445,72 @@ fn evidence_analysis_is_read_only_and_writes_no_session_or_ledger_files() {
     assert_eq!(std::fs::read(xml).unwrap(), fixture);
     assert_eq!(std::fs::read(profiles).unwrap(), profiles_before);
     assert!(files_below(&state_dir).is_empty());
+}
+
+#[test]
+fn profile_failures_use_fixed_errors_without_echoing_paths_config_or_input() {
+    let directory = tempfile::tempdir().unwrap();
+    let evidence_root = directory.path().join("evidence");
+    std::fs::create_dir(&evidence_root).unwrap();
+    std::fs::write(
+        evidence_root.join("session.xml"),
+        "<charles-session></charles-session>",
+    )
+    .unwrap();
+    let sensitive_path_token = "sensitive-profiles-location-token";
+    let missing_profiles = directory
+        .path()
+        .join(sensitive_path_token)
+        .join("profiles.toml");
+    let invalid_profiles = directory.path().join("invalid-profiles.toml");
+    let sensitive_source_host = "private-source-host-token/invalid";
+    std::fs::write(
+        &invalid_profiles,
+        format!("schemaVersion = 1\n[profiles.demo]\nsourceHost = \"{sensitive_source_host}\"\n"),
+    )
+    .unwrap();
+    let valid_profiles = profiles_file(&directory);
+    let oversized_profile = format!("private-profile-token-{}", "x".repeat(80));
+    let cases = [
+        (missing_profiles, "demo".to_owned()),
+        (invalid_profiles, "demo".to_owned()),
+        (valid_profiles.clone(), "unknown-profile-token".to_owned()),
+        (valid_profiles.clone(), oversized_profile.clone()),
+        (valid_profiles, "invalid/profile-token".to_owned()),
+    ];
+
+    for (index, (profiles, requested_profile)) in cases.into_iter().enumerate() {
+        let service = Service::with_evidence_root(
+            directory.path().join(format!("state-{index}")),
+            Some(profiles),
+            Some(evidence_root.clone()),
+        )
+        .unwrap();
+        let response = service.session_evidence(SessionEvidenceRequest {
+            profile: requested_profile,
+            xml_file: "session.xml".into(),
+        });
+
+        let error = response.error.as_ref().unwrap();
+        assert_eq!(error.code, "invalid_profile");
+        assert_eq!(
+            error.message,
+            "the selected evidence profile is unavailable"
+        );
+        let serialized = serde_json::to_string(&response).unwrap();
+        for secret in [
+            sensitive_path_token,
+            sensitive_source_host,
+            "unknown-profile-token",
+            oversized_profile.as_str(),
+            "invalid/profile-token",
+        ] {
+            assert!(
+                !serialized.contains(secret),
+                "leaked profile detail: {secret}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -412,5 +639,59 @@ fn rejects_wrong_roots_missing_required_fields_and_unbounded_output_fields() {
         let (status, response, stderr) = run_evidence(&xml);
         assert!(!status.success(), "stderr: {stderr}; response: {response}");
         assert_eq!(response["error"]["code"], "session_field_limit_exceeded");
+    }
+}
+
+#[test]
+fn requires_single_ordered_direct_request_and_response_elements() {
+    let directory = tempfile::tempdir().unwrap();
+    let legitimate = write_xml(
+        &directory,
+        "legitimate-subtrees.xml",
+        r#"<charles-session><transaction method="POST" host="app.example.com" path="/safe" query=""><request headers="2" body="3"><headers><header><name>secret-name</name><value>secret-value</value></header></headers><body>secret-body</body></request><response status="200" headers="5" body="8"><headers><header><name>secret-response-name</name><value>secret-response-value</value></header></headers><body>secret-response-body</body></response></transaction></charles-session>"#,
+    );
+    let (status, response, stderr) = run_evidence(&legitimate);
+    assert!(status.success(), "stderr: {stderr}; response: {response}");
+    assert_eq!(response["data"]["requests"][0]["requestSizeBytes"], 5);
+    assert_eq!(response["data"]["requests"][0]["responseSizeBytes"], 13);
+    let serialized = serde_json::to_string(&response).unwrap();
+    for secret in [
+        "secret-name",
+        "secret-value",
+        "secret-body",
+        "secret-response-name",
+        "secret-response-value",
+        "secret-response-body",
+    ] {
+        assert!(!serialized.contains(secret));
+    }
+
+    let invalid_documents = [
+        (
+            "nested-request.xml",
+            r#"<charles-session><transaction method="GET" host="app.example.com" path="/safe" query=""><wrapper><request headers="0" body="0"/></wrapper><response status="200" headers="0" body="0"/></transaction></charles-session>"#,
+        ),
+        (
+            "repeated-request.xml",
+            r#"<charles-session><transaction method="GET" host="app.example.com" path="/safe" query=""><request headers="0" body="0"/><request headers="0" body="0"/><response status="200" headers="0" body="0"/></transaction></charles-session>"#,
+        ),
+        (
+            "response-before-request.xml",
+            r#"<charles-session><transaction method="GET" host="app.example.com" path="/safe" query=""><response status="200" headers="0" body="0"/><request headers="0" body="0"/></transaction></charles-session>"#,
+        ),
+        (
+            "repeated-response.xml",
+            r#"<charles-session><transaction method="GET" host="app.example.com" path="/safe" query=""><request headers="0" body="0"/><response status="200" headers="0" body="0"/><response status="500" headers="0" body="0"/></transaction></charles-session>"#,
+        ),
+        (
+            "request-inside-response.xml",
+            r#"<charles-session><transaction method="GET" host="app.example.com" path="/safe" query=""><request headers="0" body="0"/><response status="200" headers="0" body="0"><request headers="9" body="9"/></response></transaction></charles-session>"#,
+        ),
+    ];
+    for (name, document) in invalid_documents {
+        let xml = write_xml(&directory, name, document);
+        let (status, response, stderr) = run_evidence(&xml);
+        assert!(!status.success(), "stderr: {stderr}; response: {response}");
+        assert_eq!(response["error"]["code"], "session_xml_malformed");
     }
 }

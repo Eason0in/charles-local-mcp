@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     fs::File,
-    io::BufReader,
+    io::{Cursor, Read},
     path::{Component, Path, PathBuf},
 };
 
@@ -10,6 +10,7 @@ use quick_xml::{
     events::{BytesStart, Event},
     Reader,
 };
+use rustix::fs::{fstat, open, openat, FileType, Mode, OFlags};
 use serde::Serialize;
 
 pub const EVIDENCE_SCHEMA_VERSION: &str = "charles-session-evidence/v1";
@@ -40,6 +41,13 @@ struct RawTransaction {
     end_millis: Option<u64>,
     request_size_bytes: Option<u64>,
     response_size_bytes: Option<u64>,
+}
+
+#[derive(Debug)]
+struct CurrentTransaction {
+    transaction: RawTransaction,
+    request_seen: bool,
+    response_seen: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -102,38 +110,28 @@ pub fn analyze(
     profile_name: &str,
     source_host: &str,
 ) -> Result<serde_json::Value, EvidenceError> {
-    let xml_file = resolve_xml_file(evidence_root, xml_file)?;
-    if !xml_file
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("xml"))
-    {
-        return Err(EvidenceError {
-            code: "session_file_not_xml",
-            message: "the selected local file must use the .xml extension",
-        });
-    }
-    let file = File::open(&xml_file).map_err(|_| EvidenceError {
-        code: "session_read_failed",
-        message: "unable to read the selected local XML file",
-    })?;
-    let metadata = file.metadata().map_err(|_| EvidenceError {
-        code: "session_read_failed",
-        message: "unable to inspect the selected local XML file",
-    })?;
-    if !metadata.is_file() {
-        return Err(EvidenceError {
-            code: "session_file_not_xml",
-            message: "the selected local path must be an XML file",
-        });
-    }
-    if metadata.len() > MAX_XML_BYTES {
-        return Err(EvidenceError {
-            code: "session_file_too_large",
-            message: "the selected XML file exceeds the 10 MiB limit",
-        });
-    }
-    let mut reader = Reader::from_reader(BufReader::new(file));
+    analyze_with_after_open(evidence_root, xml_file, profile_name, source_host, || {})
+}
+
+fn analyze_with_after_open(
+    evidence_root: &Path,
+    xml_file: &Path,
+    profile_name: &str,
+    source_host: &str,
+    after_open: impl FnOnce(),
+) -> Result<serde_json::Value, EvidenceError> {
+    let file = open_xml_file(evidence_root, xml_file)?;
+    after_open();
+    analyze_file(file, profile_name, source_host)
+}
+
+fn analyze_file(
+    file: File,
+    profile_name: &str,
+    source_host: &str,
+) -> Result<serde_json::Value, EvidenceError> {
+    let xml = read_bounded_xml(file)?;
+    let mut reader = Reader::from_reader(Cursor::new(xml));
     reader.config_mut().trim_text(true);
     let mut buffer = Vec::new();
     let mut current = None;
@@ -143,6 +141,7 @@ pub fn analyze(
     let mut routes = BTreeMap::new();
     let mut root_open = false;
     let mut root_closed = false;
+    let mut depth = 0_usize;
 
     loop {
         let event = reader
@@ -159,42 +158,87 @@ pub fn analyze(
                 });
             }
             Event::Start(start) if start.name().as_ref() == b"charles-session" => {
-                if root_open || root_closed {
+                if root_open || root_closed || depth != 0 {
                     return Err(malformed());
                 }
                 root_open = true;
+                depth = 1;
             }
             Event::Empty(start) if start.name().as_ref() == b"charles-session" => {
-                if root_open || root_closed {
+                if root_open || root_closed || depth != 0 {
                     return Err(malformed());
                 }
                 root_closed = true;
             }
             Event::Start(start) if start.name().as_ref() == b"transaction" => {
-                if !root_open || current.is_some() {
+                if !root_open || current.is_some() || depth != 1 {
                     return Err(malformed());
                 }
-                current = Some(transaction(&start, reader.decoder())?);
+                current = Some(CurrentTransaction {
+                    transaction: transaction(&start, reader.decoder())?,
+                    request_seen: false,
+                    response_seen: false,
+                });
+                depth = 2;
             }
             Event::Empty(start) if start.name().as_ref() == b"transaction" => {
                 return Err(malformed());
             }
-            Event::Start(start) | Event::Empty(start) if start.name().as_ref() == b"request" => {
-                if let Some(transaction) = current.as_mut() {
-                    transaction.request_size_bytes = exchange_size(&start, reader.decoder())?;
-                }
-            }
-            Event::Start(start) | Event::Empty(start) if start.name().as_ref() == b"response" => {
-                if let Some(transaction) = current.as_mut() {
-                    transaction.status = attribute(&start, b"status", reader.decoder())?
-                        .and_then(|value| value.parse().ok());
-                    transaction.response_size_bytes = exchange_size(&start, reader.decoder())?;
-                }
-            }
-            Event::End(end) if end.name().as_ref() == b"transaction" => {
-                let Some(transaction) = current.take() else {
+            Event::Start(start) if start.name().as_ref() == b"request" => {
+                let Some(current) = current.as_mut() else {
                     return Err(malformed());
                 };
+                if depth != 2 || current.request_seen || current.response_seen {
+                    return Err(malformed());
+                }
+                current.request_seen = true;
+                current.transaction.request_size_bytes = exchange_size(&start, reader.decoder())?;
+                depth = 3;
+            }
+            Event::Empty(start) if start.name().as_ref() == b"request" => {
+                let Some(current) = current.as_mut() else {
+                    return Err(malformed());
+                };
+                if depth != 2 || current.request_seen || current.response_seen {
+                    return Err(malformed());
+                }
+                current.request_seen = true;
+                current.transaction.request_size_bytes = exchange_size(&start, reader.decoder())?;
+            }
+            Event::Start(start) if start.name().as_ref() == b"response" => {
+                let Some(current) = current.as_mut() else {
+                    return Err(malformed());
+                };
+                if depth != 2 || !current.request_seen || current.response_seen {
+                    return Err(malformed());
+                }
+                current.response_seen = true;
+                current.transaction.status = attribute(&start, b"status", reader.decoder())?
+                    .and_then(|value| value.parse().ok());
+                current.transaction.response_size_bytes = exchange_size(&start, reader.decoder())?;
+                depth = 3;
+            }
+            Event::Empty(start) if start.name().as_ref() == b"response" => {
+                let Some(current) = current.as_mut() else {
+                    return Err(malformed());
+                };
+                if depth != 2 || !current.request_seen || current.response_seen {
+                    return Err(malformed());
+                }
+                current.response_seen = true;
+                current.transaction.status = attribute(&start, b"status", reader.decoder())?
+                    .and_then(|value| value.parse().ok());
+                current.transaction.response_size_bytes = exchange_size(&start, reader.decoder())?;
+            }
+            Event::End(end) if end.name().as_ref() == b"transaction" => {
+                if depth != 2 {
+                    return Err(malformed());
+                }
+                let Some(current) = current.take() else {
+                    return Err(malformed());
+                };
+                let transaction = current.transaction;
+                depth = 1;
                 summary.transaction_count += 1;
                 if summary.transaction_count > MAX_TRANSACTIONS {
                     return Err(EvidenceError {
@@ -241,17 +285,32 @@ pub fn analyze(
                 }
             }
             Event::End(end) if end.name().as_ref() == b"charles-session" => {
-                if !root_open || current.is_some() {
+                if !root_open || current.is_some() || depth != 1 {
                     return Err(malformed());
                 }
                 root_open = false;
                 root_closed = true;
+                depth = 0;
             }
-            Event::Start(_) | Event::Empty(_) if !root_open || root_closed => {
-                return Err(malformed());
+            Event::Start(_) => {
+                if !root_open || root_closed {
+                    return Err(malformed());
+                }
+                depth = depth.checked_add(1).ok_or_else(malformed)?;
+            }
+            Event::Empty(_) => {
+                if !root_open || root_closed {
+                    return Err(malformed());
+                }
+            }
+            Event::End(_) => {
+                if !root_open || root_closed || depth <= 1 {
+                    return Err(malformed());
+                }
+                depth -= 1;
             }
             Event::Eof => {
-                if !root_closed || root_open || current.is_some() {
+                if !root_closed || root_open || current.is_some() || depth != 0 {
                     return Err(malformed());
                 }
                 break;
@@ -281,42 +340,112 @@ pub fn analyze(
     })
 }
 
-fn resolve_xml_file(evidence_root: &Path, xml_file: &Path) -> Result<PathBuf, EvidenceError> {
-    if xml_file
-        .components()
-        .any(|component| component == Component::ParentDir)
-    {
-        return Err(outside_root());
+fn read_bounded_xml(reader: impl Read) -> Result<Box<[u8]>, EvidenceError> {
+    let mut bytes = Vec::new();
+    reader
+        .take(MAX_XML_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| read_failed())?;
+    if bytes.len() as u64 > MAX_XML_BYTES {
+        return Err(too_large());
     }
-    let root = evidence_root.canonicalize().map_err(|_| EvidenceError {
-        code: "evidence_root_unavailable",
-        message: "the configured evidence root is not an accessible directory",
-    })?;
-    if !root.is_dir() {
+    Ok(bytes.into_boxed_slice())
+}
+
+fn open_xml_file(evidence_root: &Path, xml_file: &Path) -> Result<File, EvidenceError> {
+    let evidence_root: PathBuf = std::path::absolute(evidence_root)
+        .map_err(|_| evidence_root_unavailable())?
+        .components()
+        .collect();
+    let relative = if xml_file.is_absolute() {
+        xml_file
+            .strip_prefix(&evidence_root)
+            .map_err(|_| outside_root())?
+    } else {
+        xml_file
+    };
+    if !relative
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("xml"))
+    {
         return Err(EvidenceError {
-            code: "evidence_root_unavailable",
-            message: "the configured evidence root is not an accessible directory",
+            code: "session_file_not_xml",
+            message: "the selected local file must use the .xml extension",
         });
     }
-    if xml_file.is_absolute()
-        && !xml_file.starts_with(evidence_root)
-        && !xml_file.starts_with(&root)
-    {
-        return Err(outside_root());
+    let mut components = Vec::new();
+    for component in relative.components() {
+        match component {
+            Component::Normal(component) => components.push(component),
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err(outside_root());
+            }
+        }
     }
-    let candidate = if xml_file.is_absolute() {
-        xml_file.to_path_buf()
-    } else {
-        root.join(xml_file)
+    let Some((file_name, parent_components)) = components.split_last() else {
+        return Err(EvidenceError {
+            code: "session_file_not_xml",
+            message: "the selected local path must be an XML file",
+        });
     };
-    let candidate = candidate.canonicalize().map_err(|_| EvidenceError {
+
+    let directory_flags =
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    let mut directory = open(&evidence_root, directory_flags, Mode::empty())
+        .map_err(|_| evidence_root_unavailable())?;
+    for component in parent_components {
+        directory = openat(&directory, *component, directory_flags, Mode::empty())
+            .map_err(component_open_error)?;
+    }
+    let file_descriptor = openat(
+        &directory,
+        *file_name,
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC | OFlags::NOCTTY,
+        Mode::empty(),
+    )
+    .map_err(component_open_error)?;
+    let stat = fstat(&file_descriptor).map_err(|_| read_failed())?;
+    if !FileType::from_raw_mode(stat.st_mode).is_file() {
+        return Err(EvidenceError {
+            code: "session_file_not_xml",
+            message: "the selected local path must be an XML file",
+        });
+    }
+    if u64::try_from(stat.st_size).unwrap_or(u64::MAX) > MAX_XML_BYTES {
+        return Err(too_large());
+    }
+    Ok(File::from(file_descriptor))
+}
+
+fn component_open_error(error: rustix::io::Errno) -> EvidenceError {
+    if matches!(error, rustix::io::Errno::LOOP | rustix::io::Errno::NOTDIR) {
+        outside_root()
+    } else {
+        read_failed()
+    }
+}
+
+fn read_failed() -> EvidenceError {
+    EvidenceError {
         code: "session_read_failed",
         message: "unable to read the selected local XML file",
-    })?;
-    if !candidate.starts_with(&root) {
-        return Err(outside_root());
     }
-    Ok(candidate)
+}
+
+fn too_large() -> EvidenceError {
+    EvidenceError {
+        code: "session_file_too_large",
+        message: "the selected XML file exceeds the 10 MiB limit",
+    }
+}
+
+fn evidence_root_unavailable() -> EvidenceError {
+    EvidenceError {
+        code: "evidence_root_unavailable",
+        message: "the configured evidence root is not an accessible directory",
+    }
 }
 
 fn outside_root() -> EvidenceError {
@@ -460,5 +589,58 @@ fn safe_method(method: &str) -> &'static str {
         "CONNECT" => "CONNECT",
         "TRACE" => "TRACE",
         _ => "OTHER",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_the_retained_file_after_its_parent_path_is_replaced() {
+        let directory = tempfile::tempdir().unwrap();
+        let evidence_root = directory.path().join("evidence");
+        let selected_parent = evidence_root.join("selected");
+        let retained_parent = evidence_root.join("retained");
+        std::fs::create_dir_all(&selected_parent).unwrap();
+        std::fs::write(
+            selected_parent.join("session.xml"),
+            r#"<charles-session><transaction method="GET" host="app.example.com" path="/original" query=""><request headers="0" body="0"/><response status="200" headers="0" body="0"/></transaction></charles-session>"#,
+        )
+        .unwrap();
+
+        let evidence = analyze_with_after_open(
+            &evidence_root,
+            Path::new("selected/session.xml"),
+            "demo",
+            "app.example.com",
+            || {
+                std::fs::rename(&selected_parent, &retained_parent).unwrap();
+                std::fs::create_dir(&selected_parent).unwrap();
+                std::fs::write(
+                    selected_parent.join("session.xml"),
+                    r#"<charles-session><transaction method="GET" host="app.example.com" path="/replacement" query=""><request headers="0" body="0"/><response status="500" headers="0" body="0"/></transaction></charles-session>"#,
+                )
+                .unwrap();
+            },
+        )
+        .unwrap();
+
+        assert_eq!(evidence["summary"]["transactionCount"], 1);
+        assert_eq!(evidence["summary"]["failureCount"], 0);
+        assert_eq!(evidence["requests"][0]["status"], 200);
+    }
+
+    #[test]
+    fn bounded_reader_rejects_content_that_grows_beyond_the_file_limit() {
+        let input = vec![b'x'; MAX_XML_BYTES as usize + 1];
+
+        let error = read_bounded_xml(std::io::Cursor::new(input)).unwrap_err();
+
+        assert_eq!(error.code, "session_file_too_large");
+        assert_eq!(
+            error.message,
+            "the selected XML file exceeds the 10 MiB limit"
+        );
     }
 }

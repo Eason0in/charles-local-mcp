@@ -56,8 +56,9 @@ Only one active session is allowed in a state directory.
 configured `--evidence-root` and the selected immutable profile. If the option
 is omitted, the root defaults to `<state-dir>/evidence`; it is resolved only
 when evidence analysis is requested, so existing setup and inspection commands
-do not require that directory. Relative traversal and canonical targets outside
-the root, including symlink escapes, are rejected without returning local paths.
+do not require that directory. Relative traversal and absolute paths outside
+the root are rejected without returning local paths. The evidence root, parent
+directories, and selected file must not be symbolic links.
 
 The operation uses the selected profile's exact `sourceHost` only as an
 internal filter. The bundle returns the profile name with `hostScope: "exact"`,
@@ -91,5 +92,7 @@ cargo install charles-local-mcp --locked
 
 For a one-click MCP client installation on macOS, use the universal `.mcpb`
 asset from the matching GitHub Release. The native binary and bundle are not signed or notarized by Apple, so macOS may show a security warning when opening a downloaded asset. Verify `SHA256SUMS` from that release before installing. The bundle asks for a TOML profiles file and starts `charles-local-mcp serve`; profiles remain read-only to MCP tools.
+It also asks for the XML evidence folder that is the only directory the
+`session_evidence` tool may read.
 
 Release maintainers should follow [`docs/releasing.md`](docs/releasing.md).

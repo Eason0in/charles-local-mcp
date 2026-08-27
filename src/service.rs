@@ -12,7 +12,7 @@ use crate::{
     evidence,
     model::{Checkpoint, DevicePlatform, Response, SessionEvidenceRequest, SetupPlanRequest},
     platform::{require_supported, Platform, RealPlatform},
-    profile::ProfilesFile,
+    profile::{is_valid_profile_name, ProfilesFile},
     state::{ActiveSession, PlanKind, PlanRecord, StateStore},
 };
 
@@ -112,16 +112,15 @@ impl Service {
     }
 
     pub fn session_evidence(&self, request: SessionEvidenceRequest) -> Response {
+        if !is_valid_profile_name(&request.profile) {
+            return invalid_evidence_profile();
+        }
         let profiles = match self.load_profiles() {
             Ok(profiles) => profiles,
-            Err(error) => return Response::error("session.evidence", "invalid_profile", error),
+            Err(_) => return invalid_evidence_profile(),
         };
         let Some(profile) = profiles.profiles.get(&request.profile) else {
-            return Response::error(
-                "session.evidence",
-                "invalid_profile",
-                format!("unknown profile {:?}", request.profile),
-            );
+            return invalid_evidence_profile();
         };
         match evidence::analyze(
             &self.evidence_root,
@@ -485,6 +484,14 @@ impl Service {
             Err(error) => Response::error(operation, classify_error(&error), error),
         }
     }
+}
+
+fn invalid_evidence_profile() -> Response {
+    Response::error(
+        "session.evidence",
+        "invalid_profile",
+        "the selected evidence profile is unavailable",
+    )
 }
 
 fn with_rollback_error(error: String, rollback: Vec<String>) -> String {

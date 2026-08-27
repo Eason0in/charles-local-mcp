@@ -2,6 +2,8 @@
 fn release_workflow_keeps_non_apple_publication_gates() {
     let workflow = include_str!("../.github/workflows/release.yml");
 
+    assert!(workflow.contains("for example v0.1.3"));
+    assert!(!workflow.contains("for example v0.1.1"));
     assert!(!workflow.contains("APPLE_"));
     assert!(!workflow.contains("codesign"));
     assert!(!workflow.contains("notarytool"));
@@ -41,6 +43,9 @@ fn readme_discloses_that_native_assets_are_not_notarized() {
     assert!(readme.contains("--evidence-root"));
     assert!(readme.contains("opaque route references"));
     assert!(readme.contains("never returns raw hosts, paths, query names, query values"));
+    let install = readme.split("## Install").nth(1).unwrap();
+    assert!(install.contains("TOML profiles file"));
+    assert!(install.contains("XML evidence folder"));
 }
 
 #[test]

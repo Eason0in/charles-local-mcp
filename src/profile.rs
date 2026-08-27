@@ -113,15 +113,18 @@ impl Profile {
 }
 
 fn validate_profile_name(name: &str) -> Result<(), String> {
-    if name.is_empty()
-        || name.len() > 64
-        || !name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-    {
+    if !is_valid_profile_name(name) {
         return Err(format!("invalid profile name {name:?}"));
     }
     Ok(())
+}
+
+pub(crate) fn is_valid_profile_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
 fn validate_dns_host(host: &str) -> Result<(), String> {

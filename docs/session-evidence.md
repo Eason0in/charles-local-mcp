@@ -43,8 +43,9 @@ Raw hosts, paths, query names, and query values are never returned.
 
 ## Safety boundary
 
-- Only a local `.xml` file whose canonical target stays within the configured
-  evidence root is read. Relative traversal and symlink escapes are rejected.
+- Only a local `.xml` file opened by descriptor-relative traversal within the
+  configured evidence root is read. Relative traversal is rejected, and the
+  evidence root, parent directories, and selected file must not be symbolic links.
 - The file is never uploaded, persisted, copied into state, or written to a
   ledger.
 - Only transactions whose host exactly matches the selected immutable
@@ -56,6 +57,9 @@ Raw hosts, paths, query names, and query values are never returned.
   larger than 2 KiB, and more than 50 query parameters are rejected.
 - DTD, DOCTYPE, and general entity references are rejected before evidence is
   returned. The parser never resolves external entities.
+- Request and response elements must be direct transaction children, appear at
+  most once, and remain in request-then-response order. Header and body subtrees
+  are ignored rather than returned.
 
 The [Charles export documentation](https://www.charlesproxy.com/documentation/using-charles/export/)
 describes XML as its third-party interchange format. Some exports include a
