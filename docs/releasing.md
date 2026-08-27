@@ -21,7 +21,7 @@ warning and should verify the matching release checksum before installing.
    same semantic version.
 2. Run the full CI workflow and the real-device procedure in
    `docs/manual-smoke.md`.
-3. Create and push a signed tag such as `v0.1.2`.
+3. Create and push a signed tag such as `v0.1.3`.
 4. Approve the protected `release` environment.
 5. Verify crates.io, the universal binary/MCPB GitHub assets, `SHA256SUMS`,
    `RELEASE-NOTICE.txt`, attestations, and the MCP Registry entry.

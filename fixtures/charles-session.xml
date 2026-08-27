@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<charles-session>
+  <transaction status="COMPLETE" method="GET" protocolVersion="HTTP/1.1" protocol="https" host="app.example.com" port="443" actualPort="443" path="/api/health" query="token=top-secret-query&amp;mode=full" remoteAddress="203.0.113.10" clientAddress="127.0.0.1" startTime="2026-08-27T00:00:00.000Z" startTimeMillis="1000" responseTime="2026-08-27T00:00:00.040Z" responseTimeMillis="1040" endTime="2026-08-27T00:00:00.042Z" endTimeMillis="1042" duration="42">
+    <request headers="120" body="0">
+      <headers>
+        <header><name>Authorization</name><value>Bearer super-secret-token</value></header>
+        <header><name>Cookie</name><value>session=session-cookie-secret</value></header>
+      </headers>
+      <body encoding="base64">cmVxdWVzdC1ib2R5LXNlY3JldA==</body>
+    </request>
+    <response status="200" headers="80" body="20">
+      <headers><header><name>Set-Cookie</name><value>private=response-cookie-secret</value></header></headers>
+      <body encoding="base64">cmVzcG9uc2UtYm9keS1zZWNyZXQ=</body>
+    </response>
+  </transaction>
+  <transaction status="COMPLETE" method="POST" protocolVersion="HTTP/1.1" protocol="https" host="app.example.com" port="443" actualPort="443" path="/api/payments/retry" query="idempotencyKey=retry-secret" remoteAddress="203.0.113.10" clientAddress="127.0.0.1" startTime="2026-08-27T00:00:01.000Z" startTimeMillis="2000" responseTime="2026-08-27T00:00:01.120Z" responseTimeMillis="2120" endTime="2026-08-27T00:00:01.125Z" endTimeMillis="2125" duration="125">
+    <request headers="320" body="64"><body encoding="base64">cGF5bWVudC1yZXF1ZXN0LXNlY3JldA==</body></request>
+    <response status="409" headers="90" body="48"><body encoding="base64">Y29uZmxpY3QtcmVzcG9uc2Utc2VjcmV0</body></response>
+  </transaction>
+  <transaction status="COMPLETE" method="GET" protocolVersion="HTTP/1.1" protocol="https" host="app.example.com" port="443" actualPort="443" path="/api/orders" query="" remoteAddress="203.0.113.10" clientAddress="127.0.0.1" startTime="2026-08-27T00:00:02.000Z" startTimeMillis="3000" responseTime="2026-08-27T00:00:02.700Z" responseTimeMillis="3700" endTime="2026-08-27T00:00:02.750Z" endTimeMillis="3750">
+    <request headers="100" body="0" />
+    <response status="503" headers="70" body="10" />
+  </transaction>
+  <transaction status="COMPLETE" method="POST" protocolVersion="HTTP/1.1" protocol="https" host="telemetry.example.net" port="443" actualPort="443" path="/collect" query="token=excluded-host-secret" remoteAddress="203.0.113.20" clientAddress="127.0.0.1" startTime="2026-08-27T00:00:03.000Z" startTimeMillis="4000" responseTime="2026-08-27T00:00:03.010Z" responseTimeMillis="4010" endTime="2026-08-27T00:00:03.020Z" endTimeMillis="4020" duration="20">
+    <request headers="200" body="200"><headers><header><name>Authorization</name><value>Bearer excluded-secret</value></header></headers><body encoding="base64">ZXhjbHVkZWQtYm9keS1zZWNyZXQ=</body></request>
+    <response status="204" headers="40" body="0" />
+  </transaction>
+</charles-session>

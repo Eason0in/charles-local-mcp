@@ -5,7 +5,7 @@ use rmcp::{
 };
 
 use crate::{
-    model::{SetupPlanRequest, TokenRequest},
+    model::{SessionEvidenceRequest, SetupPlanRequest, TokenRequest},
     service::Service,
 };
 
@@ -44,6 +44,16 @@ impl McpServer {
     #[tool(description = "List connected Android devices")]
     fn devices_list(&self) -> Json<crate::model::Response> {
         Json(self.service.devices_list())
+    }
+
+    #[tool(
+        description = "Analyze a local Charles XML export within the configured evidence root using one immutable profile; returns bounded numeric metadata and opaque route references only, never raw hosts, paths, query names, query values, headers, bodies, cookies, credentials, methods outside the fixed HTTP enum, or source file paths"
+    )]
+    fn session_evidence(
+        &self,
+        Parameters(request): Parameters<SessionEvidenceRequest>,
+    ) -> Json<crate::model::Response> {
+        Json(self.service.session_evidence(request))
     }
 
     #[tool(description = "Create a single-use 15-minute setup plan")]
@@ -94,7 +104,7 @@ impl ServerHandler for McpServer {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
         info.instructions = Some(
-            "Manage a local Charles 4.6.8 session using immutable profiles and plan/apply guards."
+            "Manage a local Charles 4.6.8 session using immutable profiles and plan/apply guards, and safely summarize explicitly selected local XML exports."
                 .into(),
         );
         info.capabilities = ServerCapabilities::builder().enable_tools().build();

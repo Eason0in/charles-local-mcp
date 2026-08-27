@@ -2,6 +2,8 @@
 fn release_workflow_keeps_non_apple_publication_gates() {
     let workflow = include_str!("../.github/workflows/release.yml");
 
+    assert!(workflow.contains("for example v0.1.3"));
+    assert!(!workflow.contains("for example v0.1.1"));
     assert!(!workflow.contains("APPLE_"));
     assert!(!workflow.contains("codesign"));
     assert!(!workflow.contains("notarytool"));
@@ -35,6 +37,15 @@ fn readme_discloses_that_native_assets_are_not_notarized() {
 
     assert!(readme.contains("not signed or notarized by Apple"));
     assert!(readme.contains("security warning"));
+    assert!(readme.contains("session evidence"));
+    assert!(readme.contains("headers, cookies, credentials, or bodies"));
+    assert!(readme.contains("DOCTYPE"));
+    assert!(readme.contains("--evidence-root"));
+    assert!(readme.contains("opaque route references"));
+    assert!(readme.contains("never returns raw hosts, paths, query names, query values"));
+    let install = readme.split("## Install").nth(1).unwrap();
+    assert!(install.contains("TOML profiles file"));
+    assert!(install.contains("XML evidence folder"));
 }
 
 #[test]
@@ -52,6 +63,41 @@ fn registry_metadata_uses_the_oidc_publisher_namespace() {
 fn mcpb_build_script_uses_the_current_release_version_by_default() {
     let script = include_str!("../scripts/build-mcpb.sh");
 
-    assert!(script.contains("charles-local-mcp-0.1.2-"));
-    assert!(!script.contains("charles-local-mcp-0.1.0-"));
+    assert!(script.contains("charles-local-mcp-0.1.3-"));
+    assert!(!script.contains("charles-local-mcp-0.1.2-"));
+}
+
+#[test]
+fn release_metadata_is_consistently_versioned_and_lists_session_evidence() {
+    let cargo: toml::Value = toml::from_str(include_str!("../Cargo.toml")).unwrap();
+    let lock = include_str!("../Cargo.lock");
+    let manifest: serde_json::Value =
+        serde_json::from_str(include_str!("../mcpb/manifest.json")).unwrap();
+    let server: serde_json::Value =
+        serde_json::from_str(include_str!("../server.template.json")).unwrap();
+
+    assert_eq!(cargo["package"]["version"].as_str(), Some("0.1.3"));
+    assert!(lock.contains("name = \"charles-local-mcp\"\nversion = \"0.1.3\""));
+    assert_eq!(manifest["version"], "0.1.3");
+    assert_eq!(server["version"], "0.1.3");
+    assert_eq!(server["packages"][0]["version"], "0.1.3");
+    assert!(server["packages"][0]["identifier"]
+        .as_str()
+        .unwrap()
+        .contains("/v0.1.3/charles-local-mcp-0.1.3-"));
+    assert!(manifest["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|tool| tool["name"] == "session_evidence"));
+    assert!(manifest["server"]["mcp_config"]["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|argument| argument == "--evidence-root"));
+    assert_eq!(
+        manifest["user_config"]["evidence_root"]["type"],
+        "directory"
+    );
+    assert_eq!(manifest["user_config"]["evidence_root"]["required"], true);
 }

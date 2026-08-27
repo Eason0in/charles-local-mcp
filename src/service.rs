@@ -9,9 +9,10 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    model::{Checkpoint, DevicePlatform, Response, SetupPlanRequest},
+    evidence,
+    model::{Checkpoint, DevicePlatform, Response, SessionEvidenceRequest, SetupPlanRequest},
     platform::{require_supported, Platform, RealPlatform},
-    profile::ProfilesFile,
+    profile::{is_valid_profile_name, ProfilesFile},
     state::{ActiveSession, PlanKind, PlanRecord, StateStore},
 };
 
@@ -19,12 +20,26 @@ use crate::{
 pub struct Service {
     store: StateStore,
     profiles_file: Option<PathBuf>,
+    evidence_root: PathBuf,
     platform: Arc<dyn Platform>,
 }
 
 impl Service {
     pub fn new(state_dir: PathBuf, profiles_file: Option<PathBuf>) -> Result<Self, String> {
-        Self::with_platform(state_dir, profiles_file, Arc::new(RealPlatform))
+        Self::with_evidence_root(state_dir, profiles_file, None)
+    }
+
+    pub fn with_evidence_root(
+        state_dir: PathBuf,
+        profiles_file: Option<PathBuf>,
+        evidence_root: Option<PathBuf>,
+    ) -> Result<Self, String> {
+        Self::with_platform_and_evidence_root(
+            state_dir,
+            profiles_file,
+            evidence_root,
+            Arc::new(RealPlatform),
+        )
     }
 
     pub fn with_platform(
@@ -32,9 +47,20 @@ impl Service {
         profiles_file: Option<PathBuf>,
         platform: Arc<dyn Platform>,
     ) -> Result<Self, String> {
+        Self::with_platform_and_evidence_root(state_dir, profiles_file, None, platform)
+    }
+
+    fn with_platform_and_evidence_root(
+        state_dir: PathBuf,
+        profiles_file: Option<PathBuf>,
+        evidence_root: Option<PathBuf>,
+        platform: Arc<dyn Platform>,
+    ) -> Result<Self, String> {
+        let evidence_root = evidence_root.unwrap_or_else(|| state_dir.join("evidence"));
         Ok(Self {
             store: StateStore::new(state_dir)?,
             profiles_file,
+            evidence_root,
             platform,
         })
     }
@@ -82,6 +108,28 @@ impl Service {
         match self.platform.devices() {
             Ok(devices) => Response::ready("devices.list", json!({"devices": devices})),
             Err(error) => Response::error("devices.list", "device_inspection_failed", error),
+        }
+    }
+
+    pub fn session_evidence(&self, request: SessionEvidenceRequest) -> Response {
+        if !is_valid_profile_name(&request.profile) {
+            return invalid_evidence_profile();
+        }
+        let profiles = match self.load_profiles() {
+            Ok(profiles) => profiles,
+            Err(_) => return invalid_evidence_profile(),
+        };
+        let Some(profile) = profiles.profiles.get(&request.profile) else {
+            return invalid_evidence_profile();
+        };
+        match evidence::analyze(
+            &self.evidence_root,
+            &request.xml_file,
+            &request.profile,
+            &profile.source_host,
+        ) {
+            Ok(data) => Response::ready("session.evidence", data),
+            Err(error) => Response::error("session.evidence", error.code, error.message),
         }
     }
 
@@ -436,6 +484,14 @@ impl Service {
             Err(error) => Response::error(operation, classify_error(&error), error),
         }
     }
+}
+
+fn invalid_evidence_profile() -> Response {
+    Response::error(
+        "session.evidence",
+        "invalid_profile",
+        "the selected evidence profile is unavailable",
+    )
 }
 
 fn with_rollback_error(error: String, rollback: Vec<String>) -> String {
